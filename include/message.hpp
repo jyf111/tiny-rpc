@@ -51,6 +51,7 @@ template <typename T>
 constexpr bool is_dynamic_container_v = std::conjunction_v<
     is_detected<detect_begin_t, const T>, is_detected<detect_end_t, const T>,
     is_detected<detect_size_t, const T>, is_detected<detect_insert_t, T>>;
+
 }  // namespace
 
 class Message {
@@ -281,8 +282,8 @@ class Reader : public Message {
   Reader& ReadDynamicArray(T& obj) {
     size_t sz;
     (*this) >> sz;
+    std::remove_const_t<std::remove_reference_t<decltype(*obj.begin())>> value;
     for (size_t i = 0; i < sz; ++i) {
-      typename T::value_type value;
       (*this) >> value;
       obj.insert(obj.end(), value);
     }

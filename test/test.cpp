@@ -2,7 +2,8 @@
 
 #include "catch.hpp"
 #include "message.hpp"
-
+#include "rpcserver.hpp"
+#include "rpcclient.hpp"
 using namespace tinyrpc;
 
 TEST_CASE("fundamental type") {
@@ -53,7 +54,8 @@ TEST_CASE("container type") {
 }
 
 TEST_CASE("dynamic container type") {
-  std::vector<int> a{2, 3, 4, 0, 6};;
+  std::vector<int> a{2, 3, 4, 0, 6};
+  ;
   std::vector<int> b;
   Writer writer;
   writer << a;
@@ -136,9 +138,7 @@ TEST_CASE("error msg") {
     virtual void print() = 0;
   };
   class ugly2 : public ugly {
-    void print() override {
-      puts("OK");
-    }
+    void print() override { puts("OK"); }
   };
   REQUIRE(std::is_trivially_copyable_v<ugly2> == 0);
   Writer writer;
@@ -150,5 +150,49 @@ TEST_CASE("error msg") {
 
   if (!reader) {
     std::cerr << reader.GetErrorMessage() << '\n';
+  }
+}
+
+int add(int x, int y) { return x + y; }
+void nothing() { return; }
+class Suber {
+  public:
+  int sub(int x, int y) { return x - y - bias; }
+  int bias = 10;
+};
+TEST_CASE("server invoke") {
+  RpcServer server;
+
+  server.Register("add", add);
+  server.Register("nothing", nothing);
+
+  SECTION("add") {
+    int a = 1, b = 2;
+    Writer writer;
+    writer << a << b;
+
+    std::string data = writer.Get();
+    Reader reader(data);
+
+    server.Call("add", std::move(reader));
+  }
+
+  SECTION("nothing") {
+    Writer writer;
+
+    std::string data = writer.Get();
+    Reader reader(data);
+
+    server.Call("nothing", std::move(reader));
+  }
+
+  SECTION("class function") {
+    Suber obj;
+    server.Register("sub", &obj, &Suber::sub);
+    Writer writer;
+    int x = 1, y = 2;
+    writer << x << y;
+
+    server.Call("sub", Reader(writer.Get()));
   }
 }
