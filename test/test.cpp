@@ -206,16 +206,16 @@ TEST_CASE("server invoke") {
   client.Call<std::string>("echo", [&](std::string& result) {
     REQUIRE(result == sb);
   }, sb);
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
   client.Call<int>("sub", [](int& result) {
     REQUIRE(result == (1 - 2 - 10));
+    std::cerr << result << '\n';
   }, 1, 2);
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
   client.Call<int>("add", [](int& result) {
     REQUIRE(result == (1 + 2 + 10));
+    std::cerr << result << '\n';
   }, 1, 2);
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
   client.Call<void>("nothing", []() {
+    std::cerr << "nothing\n";
   });
   // puts("Finish call work, wait call back...");
   if (server_thread.joinable()) {

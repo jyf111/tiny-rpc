@@ -46,15 +46,16 @@ class RpcClient {
           if (error) {
             return;
           }
+          buffer_ptr->clear();
           // std::cerr << "client write " << length << "bytes\n";
-          asio::async_read_until(socket_, asio::dynamic_buffer(buffer_), "\r\n",
-                          [this, func](std::error_code error, size_t length) {
+          asio::async_read_until(socket_, asio::dynamic_buffer(*buffer_ptr), "\r\n",
+                          [buffer_ptr, this, func](std::error_code error, size_t length) {
                             if (error) {
                               return;
                             }
                             // std::cerr << "client receive " << length << "bytes\n";
-                            std::string message = buffer_.substr(0, length);
-                            buffer_ = buffer_.substr(length);
+                            std::string message = buffer_ptr->substr(0, length);
+                            *buffer_ptr = buffer_ptr->substr(length);
                             Reader reader(message);
                             if constexpr (std::is_same_v<RType, void>) {
                               func();
@@ -72,7 +73,6 @@ class RpcClient {
   asio::io_context io_context_;
   asio::ip::tcp::socket socket_;
   std::thread work_thread_;
-  std::string buffer_;
   asio::executor_work_guard<asio::io_context::executor_type> work_guard_;
 };
 }  // namespace tinyrpc
