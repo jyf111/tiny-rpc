@@ -19,8 +19,7 @@ TEST_CASE("fundamental type") {
   short b[2] = {45, 67};
   writer << a << c << pod;
 
-  std::string data = writer.Get();
-  Reader reader(data);
+  Reader reader(writer.GetStringView());
 
   reader >> a >> c >> pod;
 
@@ -42,8 +41,7 @@ TEST_CASE("container type") {
   Writer writer;
   writer << a << b;
 
-  std::string data = writer.Get();
-  Reader reader(data);
+  Reader reader(writer.GetStringView());
   reader >> a >> b;
   for (int i = 0; i < 5; i++) {
     REQUIRE(a[i] == arr1[i]);
@@ -55,13 +53,12 @@ TEST_CASE("container type") {
 
 TEST_CASE("dynamic container type") {
   std::vector<int> a{2, 3, 4, 0, 6};
-  ;
+
   std::vector<int> b;
   Writer writer;
   writer << a;
 
-  std::string data = writer.Get();
-  Reader reader(data);
+  Reader reader(writer.GetStringView());
   reader >> b;
   for (int i = 0; i < 5; i++) {
     REQUIRE(b[i] == a[i]);
@@ -69,18 +66,48 @@ TEST_CASE("dynamic container type") {
 }
 
 TEST_CASE("string type") {
-  std::string message = "hello tinyrpc";
-  int ext = 909;
-  std::string receive;
-  int ext2;
-  Writer writer;
-  writer << message << ext;
+  SECTION("1") {
+    std::string message = "hello tinyrpc";
+    int ext = 909;
+    std::string receive;
+    int ext2;
+    Writer writer;
+    writer << message << ext;
 
-  std::string data = writer.Get();
-  Reader reader(data);
-  reader >> receive >> ext2;
-  REQUIRE(receive == message);
-  REQUIRE(ext == ext2);
+    Reader reader(writer.GetStringView());
+    reader >> receive >> ext2;
+    REQUIRE(receive == message);
+    REQUIRE(ext == ext2);
+  }
+  SECTION("2") {
+    std::string message = "add";
+    std::string receive;
+    Writer writer;
+    writer << message;
+
+    Reader reader(writer.GetStringView());
+    reader >> receive;
+    REQUIRE(receive == message);
+  }
+  SECTION("3") {
+    const char message[] = "sub";
+    std::string receive;
+    Writer writer;
+    writer << message;
+
+    Reader reader(writer.GetStringView());
+    reader >> receive;
+    REQUIRE(receive == std::string("sub"));
+  }
+  SECTION("4") {
+    std::string receive;
+    Writer writer;
+    writer << "123qwe";
+
+    Reader reader(writer.GetStringView());
+    reader >> receive;
+    REQUIRE(receive == std::string("123qwe"));
+  }
 }
 
 TEST_CASE("pair type") {
@@ -89,8 +116,7 @@ TEST_CASE("pair type") {
   Writer writer;
   writer << tmp;
 
-  std::string data = writer.Get();
-  Reader reader(data);
+  Reader reader(writer.GetStringView());
   reader >> tmp2;
 
   REQUIRE(tmp2.first == tmp.first);
@@ -103,8 +129,7 @@ TEST_CASE("other stl type") {
   Writer writer;
   writer << st;
 
-  std::string data = writer.Get();
-  Reader reader(data);
+  Reader reader(writer.GetStringView());
 
   std::set<int> st2;
   reader >> st2;
@@ -114,14 +139,14 @@ TEST_CASE("other stl type") {
   REQUIRE(*st2_it++ == 3);
 }
 
-// TEST_CASE("error type") {
+// TODO map value_type const problem
+// TEST_CASE("map type") {
 //   REQUIRE(is_dynamic_container_v<std::map<int, int>> == 1);
 //   std::map<int, int> mp{{1, 2}, {3, 4}};
 //   Writer writer;
 //   writer << mp;
 
-//   std::string data = writer.Get();
-//   Reader reader(data);
+//   Reader reader(writer.GetStringView());
 
 //   std::map<int, int> mp2;
 //   reader >> mp2;
@@ -133,66 +158,68 @@ TEST_CASE("other stl type") {
 //   REQUIRE(mp2_it->second == 4);
 // }
 
-TEST_CASE("error msg") {
-  class ugly {
-    virtual void print() = 0;
-  };
-  class ugly2 : public ugly {
-    void print() override { puts("OK"); }
-  };
-  REQUIRE(std::is_trivially_copyable_v<ugly2> == 0);
-  Writer writer;
-  ugly2 tmp;
-  writer << tmp;
-  std::string data = writer.Get();
-  Reader reader(data);
-  reader >> tmp;
+// TEST_CASE("error msg") {
+//   class ugly {
+//     virtual void print() = 0;
+//   };
+//   class ugly2 : public ugly {
+//     void print() override { puts("OK"); }
+//   };
+//   REQUIRE(std::is_trivially_copyable_v<ugly2> == 0);
+//   Writer writer;
+//   ugly2 tmp;
+//   writer << tmp;
+//   std::string data = writer.GetStringView();
+//   Reader reader(data);
+//   reader >> tmp;
 
-  if (!reader) {
-    std::cerr << reader.GetErrorMessage() << '\n';
-  }
-}
+//   if (!reader) {
+//     std::cerr << reader.GetStringViewErrorMessage() << '\n';
+//   }
+// }
 
-int add(int x, int y) { return x + y; }
+int add(int x, int y) { return x + y + 10; }
+std::string echo(std::string s) { return s; }
 void nothing() { return; }
 class Suber {
   public:
   int sub(int x, int y) { return x - y - bias; }
   int bias = 10;
 };
-TEST_CASE("server invoke") {
-  RpcServer server;
-
+void RunServer() {
+  RpcServer server(8888);
   server.Register("add", add);
+  server.Register("echo", echo);
+  Suber suber;
+  server.Register("sub", &suber, &Suber::sub);
   server.Register("nothing", nothing);
-
-  SECTION("add") {
-    int a = 1, b = 2;
-    Writer writer;
-    writer << a << b;
-
-    std::string data = writer.Get();
-    Reader reader(data);
-
-    server.Call("add", std::move(reader));
+  server.Start();
+  std::this_thread::sleep_for(std::chrono::seconds(10));
+  server.Stop();
+}
+TEST_CASE("server invoke") {
+  std::thread server_thread(RunServer);
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  RpcClient client("127.0.0.1", 8888);
+  client.Start();
+  std::string sb = "hello rpc";
+  client.Call<std::string>("echo", [&](std::string& result) {
+    REQUIRE(result == sb);
+  }, sb);
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  client.Call<int>("sub", [](int& result) {
+    REQUIRE(result == (1 - 2 - 10));
+  }, 1, 2);
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  client.Call<int>("add", [](int& result) {
+    REQUIRE(result == (1 + 2 + 10));
+  }, 1, 2);
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  client.Call<void>("nothing", []() {
+  });
+  // puts("Finish call work, wait call back...");
+  if (server_thread.joinable()) {
+    server_thread.join();
   }
-
-  SECTION("nothing") {
-    Writer writer;
-
-    std::string data = writer.Get();
-    Reader reader(data);
-
-    server.Call("nothing", std::move(reader));
-  }
-
-  SECTION("class function") {
-    Suber obj;
-    server.Register("sub", &obj, &Suber::sub);
-    Writer writer;
-    int x = 1, y = 2;
-    writer << x << y;
-
-    server.Call("sub", Reader(writer.Get()));
-  }
+  client.Stop();
 }
