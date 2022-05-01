@@ -35,13 +35,13 @@ int main() {
 
   // })
   // socket_.async_write_some(
-  //       asio::buffer(*buffer_ptr), [buffer_ptr, this, func](std::error_code error, size_t length) {
+  //       asio::buffer(*buffer_ptr), [buffer_ptr, this, func](std::error_code error, std::size_t length) {
   //         if (error) {
   //           return;
   //         }
   //         std::cerr << "client write " << length << "bytes\n";
   //         asio::async_read_until(socket_, asio::dynamic_buffer(*buffer_ptr), "\r\n",
-  //                         [buffer_ptr, this, func](std::error_code error, size_t length) {
+  //                         [buffer_ptr, this, func](std::error_code error, std::size_t length) {
   //                           if (error) {
   //                             return;
   //                           }

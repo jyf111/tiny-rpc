@@ -125,31 +125,39 @@ class RpcServer {
 
     void Start() {
       auto self{shared_from_this()};
-      asio::async_read_until(
-          socket_, asio::dynamic_buffer(read_buffer_), "\r\n",
+      asio::async_read(
+          socket_, asio::buffer(read_buffer_, Message::HeaderLength),
           [this, self](std::error_code error, std::size_t length) {
             if (error) {
               return;
             }
-            Reader reader(read_buffer_.data(), length);
-            std::string name;
-            reader >> name;
-            write_buffer_ = std::move(server_.Call(name, std::move(reader)));
-            read_buffer_ = read_buffer_.substr(length);
-            socket_.async_write_some(
-                asio::buffer(write_buffer_),
+            Reader reader(read_buffer_, length);
+            asio::async_read(
+                socket_, asio::buffer(read_buffer_, reader.Length()),
                 [this, self](std::error_code error, std::size_t length) {
                   if (error) {
                     return;
                   }
-                  Start();
+                  Reader reader(read_buffer_, length, false);
+                  std::string name;
+                  reader >> name;
+                  write_buffer_ =
+                      std::move(server_.Call(name, std::move(reader)));
+                  asio::async_write(
+                      socket_, asio::buffer(write_buffer_),
+                      [this, self](std::error_code error, std::size_t length) {
+                        if (error) {
+                          return;
+                        }
+                        Start();
+                      });
                 });
           });
     }
 
    private:
     asio::ip::tcp::socket socket_;
-    std::string read_buffer_;
+    char read_buffer_[Message::MaxLength];
     std::string write_buffer_;
     RpcServer& server_;
   };

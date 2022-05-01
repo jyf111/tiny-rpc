@@ -52,35 +52,43 @@ class RpcClient {
     static_cast<void>((writer << ... << args));
     lock_.lock();
     write_buffer_ = std::move(writer.GetString());
-    socket_.async_write_some(
-        asio::buffer(write_buffer_),
-        [this, func, name](std::error_code error, size_t length) {
+    asio::async_write(
+        socket_, asio::buffer(write_buffer_),
+        [this, func](std::error_code error, std::size_t length) {
           if (error) {
             return;
           }
-          asio::async_read_until(
-              socket_, asio::dynamic_buffer(read_buffer_), "\r\n",
-              [this, func](std::error_code error, size_t length) {
+          asio::async_read(
+              socket_, asio::buffer(read_buffer_, Message::HeaderLength),
+              [this, func](std::error_code error, std::size_t length) {
                 if (error) {
                   return;
                 }
-                Reader reader(read_buffer_.data(), length);
-                if constexpr (std::is_same_v<RType, void>) {
-                  func();
-                } else {
-                  RType result;
-                  reader >> result;
-                  func(result);
-                }
-                read_buffer_ = read_buffer_.substr(length);
-                lock_.unlock();
+                Reader reader(read_buffer_, length);
+                asio::async_read(
+                    socket_, asio::buffer(read_buffer_, reader.Length()),
+                    [this, func](std::error_code error, std::size_t length) {
+                      if (error) {
+                        return;
+                      }
+                      Reader reader(read_buffer_, length, false);
+                      if constexpr (std::is_same_v<RType, void>) {
+                        func();
+                      } else {
+                        RType result;
+                        reader >> result;
+                        func(result);
+                      }
+                      lock_.unlock();
+                    });
               });
         });
   }
 
+  char read_buffer_[Message::MaxLength];
   std::string write_buffer_;
-  std::string read_buffer_;
   std::mutex lock_;  // manage the buffer
+
   // network
   asio::ip::tcp::endpoint endpoint_;
   asio::io_context io_context_;

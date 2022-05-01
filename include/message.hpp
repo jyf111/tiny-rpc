@@ -52,9 +52,10 @@ constexpr bool is_dynamic_container_v = std::conjunction_v<
 
 class Message {
  public:
+  static constexpr uint32_t HeaderLength = 8;  // sizeof(header);
   static constexpr uint32_t MaxLength = 1 << 12;
 
-  uint32_t Size() const { return header_.size; }
+  uint32_t Length() const { return header_.length; }
 
   const std::string& GetErrorMessage() const {
     assert(IsError());
@@ -77,7 +78,7 @@ class Message {
   static std::string Debug(T* x) {
     std::ostringstream oss;
     auto ptr = reinterpret_cast<const char*>(x);
-    for (size_t i = 0; i < sizeof(T); ++i) {
+    for (std::size_t i = 0; i < sizeof(T); ++i) {
       oss << DebugByte(*ptr++) << ' ';
     }
     return oss.str();
@@ -104,7 +105,7 @@ class Message {
 
   struct header {
     uint32_t identifier;
-    uint32_t size;
+    uint32_t length;
   };
   enum class endian { little, big };
 
@@ -124,14 +125,12 @@ class Writer : public Message {
 
   std::string_view GetStringView() {
     if (!header_.identifier) {
-      data_ += "\r\n";
       WriteHeader();
     }
     return std::string_view(data_);
   }
   const std::string& GetString() {
     if (!header_.identifier) {
-      data_ += "\r\n";
       WriteHeader();
     }
     return data_;
@@ -176,7 +175,7 @@ class Writer : public Message {
  private:
   void WriteHeader() {
     header_.identifier = Magic;
-    header_.size = data_.size() - sizeof(header);
+    header_.length = data_.size() - sizeof(header);
 
     std::memcpy(data_.data(), &header_, sizeof(header));
 
@@ -205,11 +204,17 @@ class Writer : public Message {
 
 class Reader : public Message {
  public:
-  explicit Reader(std::string_view&& data) : Message(), data_(std::move(data)) {
-    ReadHeader(data_.size());
+  Reader(std::string_view&& data, bool contain_header = true)
+      : Message(), data_(std::move(data)) {
+    if (contain_header) {
+      ReadHeader();
+    }
   }
-  Reader(const char* data, size_t length) : Message(), data_(data, length) {
-    ReadHeader(data_.size());
+  Reader(const char* data, std::size_t length, bool contain_header = true)
+      : Message(), data_(data, length) {
+    if (contain_header) {
+      ReadHeader();
+    }
   }
   Reader(const Reader& oth) = delete;
   Reader& operator=(const Reader& oth) = delete;
@@ -254,9 +259,9 @@ class Reader : public Message {
       return *this;
     }
     obj.clear();
-    size_t sz;
+    std::size_t sz;
     (*this) >> sz;
-    for (size_t i = 0; i < sz; i++) {
+    for (std::size_t i = 0; i < sz; i++) {
       std::pair<U, V> value;
       (*this) >> value;
       obj.emplace_hint(obj.end(), value);
@@ -269,9 +274,9 @@ class Reader : public Message {
       return *this;
     }
     obj.clear();
-    size_t sz;
+    std::size_t sz;
     (*this) >> sz;
-    for (size_t i = 0; i < sz; i++) {
+    for (std::size_t i = 0; i < sz; i++) {
       std::pair<U, V> value;
       (*this) >> value;
       obj.emplace(value);
@@ -280,24 +285,22 @@ class Reader : public Message {
   }
 
  private:
-  void ReadHeader(uint32_t size) {
+  void ReadHeader() {
     std::memcpy(&header_, data_.data(), sizeof(header));
 
     if (endian_ == endian::big) {
-      ByteSwap(&header_, &header_.size);
-      ByteSwap(&header_.size, &header_ + 1);
+      ByteSwap(&header_, &header_.length);
+      ByteSwap(&header_.length, &header_ + 1);
     }
     data_.remove_prefix(sizeof(header));
     if (header_.identifier != Magic) {
       SetError("unsupported message type!");
-    } else if (Size() != size - sizeof(header)) {
-      SetError("error message length!");
     }
   }
 
   template <typename T>
   Reader& ReadArray(T& obj) {
-    size_t sz;
+    std::size_t sz;
     (*this) >> sz;
     for (auto& iter : obj) {
       (*this) >> iter;
@@ -306,10 +309,10 @@ class Reader : public Message {
   }
   template <typename T>
   Reader& ReadDynamicArray(T& obj) {
-    size_t sz;
+    std::size_t sz;
     (*this) >> sz;
     typename T::value_type value;
-    for (size_t i = 0; i < sz; ++i) {
+    for (std::size_t i = 0; i < sz; ++i) {
       (*this) >> value;
       obj.insert(obj.end(), value);
     }
