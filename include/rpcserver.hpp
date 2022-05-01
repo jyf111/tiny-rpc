@@ -6,6 +6,7 @@
 #include "message.hpp"
 
 namespace tinyrpc {
+
 class RpcServer {
  public:
   RpcServer(uint16_t port)
@@ -21,7 +22,9 @@ class RpcServer {
   }
 
   void Stop() {
-    io_context_.stop();
+    if (!io_context_.stopped()) {
+      io_context_.stop();
+    }
     if (work_thread_.joinable()) {
       work_thread_.join();
     }
@@ -106,6 +109,7 @@ class RpcServer {
           Listen();
         });
   }
+
   std::unordered_map<std::string, std::function<std::string(Reader&&)>>
       handlers_;
   // for network
@@ -115,9 +119,8 @@ class RpcServer {
 
   class Connection : public std::enable_shared_from_this<Connection> {
    public:
-    Connection(asio::ip::tcp::socket socket, RpcServer& server)
-        : socket_(std::move(socket)), server_(server) {
-    }
+    Connection(asio::ip::tcp::socket&& socket, RpcServer& server)
+        : socket_(std::move(socket)), server_(server) {}
     ~Connection() { socket_.close(); }
 
     void Start() {
@@ -128,26 +131,17 @@ class RpcServer {
             if (error) {
               return;
             }
-            // std::cerr << "server receive " << length << "bytes\n";
-            std::string message = read_buffer_.substr(0, length);
-            read_buffer_ = read_buffer_.substr(length);
-            Reader reader(message);
-            if (!reader) {
-              std::cerr << "???" << reader.GetErrorMessage() << '\n';
-            } else {
-              //std::cerr << "OK!\n";
-            }
+            Reader reader(read_buffer_.data(), length);
             std::string name;
             reader >> name;
-            std::cerr << "call " << name << '\n';
             write_buffer_ = std::move(server_.Call(name, std::move(reader)));
+            read_buffer_ = read_buffer_.substr(length);
             socket_.async_write_some(
                 asio::buffer(write_buffer_),
                 [this, self](std::error_code error, std::size_t length) {
                   if (error) {
                     return;
                   }
-                  // std::cerr << "server write " << length << "byte\n";
                   Start();
                 });
           });

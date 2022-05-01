@@ -2,8 +2,8 @@
 
 #include "catch.hpp"
 #include "message.hpp"
-#include "rpcserver.hpp"
 #include "rpcclient.hpp"
+#include "rpcserver.hpp"
 using namespace tinyrpc;
 
 TEST_CASE("fundamental type") {
@@ -199,7 +199,7 @@ TEST_CASE("message exchange") {
     int b;
   };
   input in{1, 2, 3};
-  output out{in.a+in.b*in.c, in.b-in.a*in.c};
+  output out{in.a + in.b * in.c, in.b - in.a * in.c};
   Writer writer;
   writer << in << out;
   Reader reader(writer.GetStringView());
@@ -209,17 +209,27 @@ TEST_CASE("message exchange") {
   REQUIRE(in.a == 1);
   REQUIRE(in.b == 2);
   REQUIRE(in.c == 3);
-  REQUIRE(out.a == (in.a+in.b*in.c));
-  REQUIRE(out.b == (in.b-in.a*in.c));
+  REQUIRE(out.a == (in.a + in.b * in.c));
+  REQUIRE(out.b == (in.b - in.a * in.c));
 }
 
 int add(int x, int y) { return x + y + 10; }
 std::string echo(std::string s) { return s; }
 void nothing() { return; }
 class Suber {
-  public:
+ public:
   int sub(int x, int y) { return x - y - bias; }
   int bias = 10;
+};
+struct A {
+  int x, y, z;
+};
+struct B {
+  int x, y;
+};
+class Manager {
+ public:
+  A change(B b) { return A{b.x + b.y, b.x - b.y, b.x * b.y}; }
 };
 void RunServer() {
   RpcServer server(8888);
@@ -228,6 +238,8 @@ void RunServer() {
   Suber suber;
   server.Register("sub", &suber, &Suber::sub);
   server.Register("nothing", nothing);
+  Manager manager;
+  server.Register("change", &manager, &Manager::change);
   server.Start();
   std::this_thread::sleep_for(std::chrono::seconds(10));
   server.Stop();
@@ -238,21 +250,29 @@ TEST_CASE("server invoke") {
   RpcClient client("127.0.0.1", 8888);
   client.Start();
   std::string sb = "hello rpc";
-  client.Call<std::string>("echo", [&](std::string& result) {
-    REQUIRE(result == sb);
-  }, sb);
-  client.Call<int>("sub", [](int& result) {
-    REQUIRE(result == (1 - 2 - 10));
-    std::cerr << result << '\n';
-  }, 1, 2);
-  client.Call<int>("add", [](int& result) {
-    REQUIRE(result == (1 + 2 + 10));
-    std::cerr << result << '\n';
-  }, 1, 2);
-  client.Call<void>("nothing", []() {
-    std::cerr << "nothing\n";
-  });
-  // puts("Finish call work, wait call back...");
+  client.Call<std::string>(
+      "echo", [&](std::string& result) { REQUIRE(result == sb); },
+      sb);
+  client.Call<int>(
+      "sub", [](int& result) {
+        REQUIRE(result == (1 - 2 - 10));
+      },
+      1, 2);
+  client.Call<int>(
+      "add", [](int& result) {
+        REQUIRE(result == (1 + 2 + 10));
+      },
+      1, 2);
+  client.Call<void>("nothing", []() { CHECK(true); });
+  B b{2, 3};
+  client.Call<A>(
+      "change", [&](A& a) {
+        REQUIRE(a.x == b.x + b.y);
+        REQUIRE(a.y == b.x - b.y);
+        REQUIRE(a.z == b.x * b.y);
+      },
+      b);
+
   if (server_thread.joinable()) {
     server_thread.join();
   }

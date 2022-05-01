@@ -61,9 +61,7 @@ class Message {
     return *error_;
   }
 
-  operator bool() const {
-    return !IsError();
-  }
+  operator bool() const { return !IsError(); }
 
   template <typename U, typename V>
   static void ByteSwap(U* l, V* r) {
@@ -141,10 +139,11 @@ class Writer : public Message {
 
   template <typename T>
   Writer& operator<<(const T& obj) {
-    if (IsError()) { // if error occured before, just do nothing
+    if (IsError()) {  // if error occured before, just do nothing
       return *this;
     }
-    if constexpr (std::is_pointer_v<T>) { // do not use raw c string, it will decay to char*
+    if constexpr (std::is_pointer_v<T>) {  // do not use raw c string, it will
+                                           // decay to char*
       SetError("pointer is dangerouse!");
       return *this;
     } else if constexpr (is_container_v<T>) {
@@ -173,6 +172,7 @@ class Writer : public Message {
     }
     return (*this) << obj.first << obj.second;
   }
+
  private:
   void WriteHeader() {
     header_.identifier = Magic;
@@ -205,9 +205,11 @@ class Writer : public Message {
 
 class Reader : public Message {
  public:
-  explicit Reader(std::string_view&& data)
-      : Message(), data_(std::move(data)) {
-    ReadHeader(data.size());
+  explicit Reader(std::string_view&& data) : Message(), data_(std::move(data)) {
+    ReadHeader(data_.size());
+  }
+  Reader(const char* data, size_t length) : Message(), data_(data, length) {
+    ReadHeader(data_.size());
   }
   Reader(const Reader& oth) = delete;
   Reader& operator=(const Reader& oth) = delete;
@@ -257,7 +259,7 @@ class Reader : public Message {
     for (size_t i = 0; i < sz; i++) {
       std::pair<U, V> value;
       (*this) >> value;
-      obj.insert(value);
+      obj.emplace_hint(obj.end(), value);
     }
     return *this;
   }
@@ -272,10 +274,11 @@ class Reader : public Message {
     for (size_t i = 0; i < sz; i++) {
       std::pair<U, V> value;
       (*this) >> value;
-      obj.insert(value);
+      obj.emplace(value);
     }
     return *this;
   }
+
  private:
   void ReadHeader(uint32_t size) {
     std::memcpy(&header_, data_.data(), sizeof(header));

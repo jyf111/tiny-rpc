@@ -31,33 +31,33 @@ void func(int i) {
 int main() {
   ip::tcp::endpoint ep(ip::address::from_string("127.0.0.1"), 6666);
   ip::tcp::socket socket(io);
-  socket.async_connect(ep, [](std::error_code error) {
+  // socket.async_connect(ep, [](std::error_code error) {
 
-  })
-  socket_.async_write_some(
-        asio::buffer(*buffer_ptr), [buffer_ptr, this, func](std::error_code error, size_t length) {
-          if (error) {
-            return;
-          }
-          std::cerr << "client write " << length << "bytes\n";
-          asio::async_read_until(socket_, asio::dynamic_buffer(*buffer_ptr), "\r\n",
-                          [buffer_ptr, this, func](std::error_code error, size_t length) {
-                            if (error) {
-                              return;
-                            }
-                            std::cerr << "client receive " << length << "bytes\n";
-                            std::string message = buffer_ptr->substr(0, length);
-                            *buffer_ptr = buffer_ptr->substr(length);
-                            Reader reader(message);
-                            if constexpr (std::is_same_v<RType, void>) {
-                              func();
-                            } else {
-                              RType result;
-                              reader >> result;
-                              func(result);
-                            }
-                          });
-        });
+  // })
+  // socket_.async_write_some(
+  //       asio::buffer(*buffer_ptr), [buffer_ptr, this, func](std::error_code error, size_t length) {
+  //         if (error) {
+  //           return;
+  //         }
+  //         std::cerr << "client write " << length << "bytes\n";
+  //         asio::async_read_until(socket_, asio::dynamic_buffer(*buffer_ptr), "\r\n",
+  //                         [buffer_ptr, this, func](std::error_code error, size_t length) {
+  //                           if (error) {
+  //                             return;
+  //                           }
+  //                           std::cerr << "client receive " << length << "bytes\n";
+  //                           std::string message = buffer_ptr->substr(0, length);
+  //                           *buffer_ptr = buffer_ptr->substr(length);
+  //                           Reader reader(message);
+  //                           if constexpr (std::is_same_v<RType, void>) {
+  //                             func();
+  //                           } else {
+  //                             RType result;
+  //                             reader >> result;
+  //                             func(result);
+  //                           }
+  //                         });
+  //       });
   // for ( int i = 0; i < 5; ++i)
   //       io.post(std::bind(func, i));
   // for ( int i = 5; i < 10; i+=2) {
@@ -83,10 +83,11 @@ int main() {
   // socket2.async_connect(ep, connect_handler);
   // std::cerr << timeToString(std::chrono::system_clock::now()) << ' ' << socket1.is_open() << ' ' << socket2.is_open() << '\n';
 
-  // steady_timer timer(io, std::chrono::seconds(5));
-  // timer.async_wait(timeout_handler);
+  steady_timer timer(io, std::chrono::seconds(10));
+  timer.async_wait(timeout_handler);
 
-  // io.run();
+  io.run();
+  io.stop();
   // auto thread1 = std::thread(run_io);
   // auto thread2 = std::thread(run_io);
   // if (thread1.joinable()) thread1.join();

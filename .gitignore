@@ -1,3 +1,4 @@
+.vscode
 build
 include/asio
 include/catch.hpp
