@@ -2,3 +2,6 @@
 build
 include/asio
 include/catch.hpp
+client
+server
+src
