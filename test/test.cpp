@@ -123,7 +123,7 @@ TEST_CASE("pair type") {
   REQUIRE(tmp2.second == tmp.second);
 }
 
-TEST_CASE("other stl type") {
+TEST_CASE("set type") {
   REQUIRE(is_dynamic_container_v<std::set<int>> == 1);
   std::set<int> st{1, 2, 3};
   Writer writer;
@@ -139,44 +139,79 @@ TEST_CASE("other stl type") {
   REQUIRE(*st2_it++ == 3);
 }
 
-// TODO map value_type const problem
-// TEST_CASE("map type") {
-//   REQUIRE(is_dynamic_container_v<std::map<int, int>> == 1);
-//   std::map<int, int> mp{{1, 2}, {3, 4}};
-//   Writer writer;
-//   writer << mp;
+TEST_CASE("map type") {
+  REQUIRE(is_dynamic_container_v<std::map<int, int>> == 1);
+  std::map<int, int> mp{{1, 2}, {3, 4}};
+  std::unordered_map<int, int> ump{{5, 6}, {7, 8}};
+  Writer writer;
+  writer << mp << ump;
 
-//   Reader reader(writer.GetStringView());
+  Reader reader(writer.GetStringView());
 
-//   std::map<int, int> mp2;
-//   reader >> mp2;
-//   auto mp2_it = mp2.begin();
-//   REQUIRE(mp2_it->first == 1);
-//   REQUIRE(mp2_it->second == 2);
-//   ++mp2_it;
-//   REQUIRE(mp2_it->first == 3);
-//   REQUIRE(mp2_it->second == 4);
-// }
+  std::map<int, int> mp2;
+  std::unordered_map<int, int> ump2;
+  reader >> mp2 >> ump2;
+  auto mp2_it = mp2.begin();
+  REQUIRE(mp2_it->first == 1);
+  REQUIRE(mp2_it->second == 2);
+  ++mp2_it;
+  REQUIRE(mp2_it->first == 3);
+  REQUIRE(mp2_it->second == 4);
 
-// TEST_CASE("error msg") {
-//   class ugly {
-//     virtual void print() = 0;
-//   };
-//   class ugly2 : public ugly {
-//     void print() override { puts("OK"); }
-//   };
-//   REQUIRE(std::is_trivially_copyable_v<ugly2> == 0);
-//   Writer writer;
-//   ugly2 tmp;
-//   writer << tmp;
-//   std::string data = writer.GetStringView();
-//   Reader reader(data);
-//   reader >> tmp;
+  auto ump2_it = ump2.begin();
+  REQUIRE(ump2_it->first == 5);
+  REQUIRE(ump2_it->second == 6);
+  ++ump2_it;
+  REQUIRE(ump2_it->first == 7);
+  REQUIRE(ump2_it->second == 8);
+}
 
-//   if (!reader) {
-//     std::cerr << reader.GetStringViewErrorMessage() << '\n';
-//   }
-// }
+TEST_CASE("error msg") {
+  class ugly {
+    virtual void print() = 0;
+  };
+  class ugly2 : public ugly {
+    void print() override { puts("OK"); }
+  };
+  REQUIRE(std::is_trivially_copyable_v<ugly2> == 0);
+  Writer writer;
+  ugly2 tmp;
+  writer << tmp;
+  if (!writer) {
+    CHECK_FALSE(writer);
+    REQUIRE(writer.GetErrorMessage() == "unsupported type in writer!");
+  }
+
+  Reader reader(writer.GetStringView());
+  reader >> tmp;
+  CHECK_FALSE(reader);
+  REQUIRE(reader.GetErrorMessage() == "unsupported type in reader!");
+}
+
+TEST_CASE("message exchange") {
+  struct input {
+    int a;
+    int b;
+    int c;
+  };
+  struct output {
+    int a;
+    int b;
+  };
+  input in{1, 2, 3};
+  output out{in.a+in.b*in.c, in.b-in.a*in.c};
+  Writer writer;
+  writer << in << out;
+  Reader reader(writer.GetStringView());
+  reader >> in >> out;
+  CHECK(reader);
+  CHECK(writer);
+  REQUIRE(in.a == 1);
+  REQUIRE(in.b == 2);
+  REQUIRE(in.c == 3);
+  REQUIRE(out.a == (in.a+in.b*in.c));
+  REQUIRE(out.b == (in.b-in.a*in.c));
+}
 
 int add(int x, int y) { return x + y + 10; }
 std::string echo(std::string s) { return s; }

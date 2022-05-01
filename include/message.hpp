@@ -52,11 +52,11 @@ constexpr bool is_dynamic_container_v = std::conjunction_v<
 
 class Message {
  public:
-  static constexpr uint32_t MaxLength = 1 << 11;
+  static constexpr uint32_t MaxLength = 1 << 12;
 
   uint32_t Size() const { return header_.size; }
 
-  std::string GetErrorMessage() const {
+  const std::string& GetErrorMessage() const {
     assert(IsError());
     return *error_;
   }
@@ -68,8 +68,7 @@ class Message {
   template <typename U, typename V>
   static void ByteSwap(U* l, V* r) {
     auto st = reinterpret_cast<char*>(l);
-    auto ed = reinterpret_cast<char*>(r);
-    --ed;
+    auto ed = reinterpret_cast<char*>(r) - 1;
     while (st < ed) {
       std::swap(*st, *ed);
       ++st, --ed;
@@ -95,14 +94,10 @@ class Message {
   }
 
  protected:
-  Message() {
-    header_ = {0U, 0U};
-
+  Message() : header_{0U, 0U}, error_(std::nullopt) {
     uint16_t value = 0x01;
     auto least_significant_byte = *reinterpret_cast<uint8_t*>(&value);
     endian_ = least_significant_byte == 0x01 ? endian::little : endian::big;
-
-    error_ = std::nullopt;
   }
 
   void SetError(const std::string& err_message) { error_ = err_message; }
@@ -116,8 +111,8 @@ class Message {
   enum class endian { little, big };
 
   header header_;
-  endian endian_;
   std::optional<std::string> error_;
+  endian endian_;
 
   static constexpr uint32_t Magic =
       0xc2a9c9a7;  // echo -n tinyrpc | md5sum: c2a9c9a7fd9ab6f3d6d18bfc49eb7f21
@@ -125,18 +120,18 @@ class Message {
 
 class Writer : public Message {
  public:
-  Writer() : data_(sizeof(header), 0) {}
+  Writer() : data_(sizeof(header), '\0') {}
   Writer(const Writer& oth) = delete;
   Writer& operator=(const Writer& oth) = delete;
 
   std::string_view GetStringView() {
     if (!header_.identifier) {
-      data_ += "\r\n"; //simplify the message end problem
+      data_ += "\r\n";
       WriteHeader();
     }
     return std::string_view(data_);
   }
-  std::string GetString() {
+  const std::string& GetString() {
     if (!header_.identifier) {
       data_ += "\r\n";
       WriteHeader();
@@ -149,8 +144,10 @@ class Writer : public Message {
     if (IsError()) { // if error occured before, just do nothing
       return *this;
     }
-
-    if constexpr (is_container_v<T>) {
+    if constexpr (std::is_pointer_v<T>) { // do not use raw c string, it will decay to char*
+      SetError("pointer is dangerouse!");
+      return *this;
+    } else if constexpr (is_container_v<T>) {
       return WriteArray(obj);
     } else if constexpr (std::is_trivially_copyable_v<T>) {
       int pre_size = data_.size();
@@ -158,12 +155,14 @@ class Writer : public Message {
 
       std::memcpy(data_.data() + pre_size, &obj, sizeof(T));
       if (endian_ == endian::big) {
-        ByteSwap(data_.data() + pre_size, data_.data() + data_.size());
+        if (!std::is_class_v<T>) {  // for struct, it is wrong
+          ByteSwap(data_.data() + pre_size, data_.data() + data_.size());
+        }
       }
 
       return *this;
     }
-    SetError("unsupported type in writer.");
+    SetError("unsupported type in writer!");
     return *this;
   }
 
@@ -172,10 +171,8 @@ class Writer : public Message {
     if (IsError()) {
       return *this;
     }
-
     return (*this) << obj.first << obj.second;
   }
-
  private:
   void WriteHeader() {
     header_.identifier = Magic;
@@ -220,20 +217,24 @@ class Reader : public Message {
     if (IsError()) {
       return *this;
     }
-    if constexpr (is_dynamic_container_v<T>) {
+    if constexpr (std::is_pointer_v<T>) {
+      SetError("pointer is dangerouse!");
+      return *this;
+    } else if constexpr (is_dynamic_container_v<T>) {
       return ReadDynamicArray(obj);
     } else if constexpr (is_container_v<T>) {
       return ReadArray(obj);
     } else if constexpr (std::is_trivially_copyable_v<T>) {
       std::memcpy(&obj, data_.data(), sizeof(T));
       if (endian_ == endian::big) {
-        ByteSwap(&obj, &obj + 1);
+        if (!std::is_class_v<T>) {
+          ByteSwap(&obj, &obj + 1);
+        }
       }
-
       data_.remove_prefix(sizeof(T));
       return *this;
     }
-    SetError("unsupported type in reader.");
+    SetError("unsupported type in reader!");
     return *this;
   }
 
@@ -242,10 +243,39 @@ class Reader : public Message {
     if (IsError()) {
       return *this;
     }
-
     return (*this) >> obj.first >> obj.second;
   }
 
+  template <typename U, typename V>
+  Reader& operator>>(std::map<U, V>& obj) {
+    if (IsError()) {
+      return *this;
+    }
+    obj.clear();
+    size_t sz;
+    (*this) >> sz;
+    for (size_t i = 0; i < sz; i++) {
+      std::pair<U, V> value;
+      (*this) >> value;
+      obj.insert(value);
+    }
+    return *this;
+  }
+  template <typename U, typename V>
+  Reader& operator>>(std::unordered_map<U, V>& obj) {
+    if (IsError()) {
+      return *this;
+    }
+    obj.clear();
+    size_t sz;
+    (*this) >> sz;
+    for (size_t i = 0; i < sz; i++) {
+      std::pair<U, V> value;
+      (*this) >> value;
+      obj.insert(value);
+    }
+    return *this;
+  }
  private:
   void ReadHeader(uint32_t size) {
     std::memcpy(&header_, data_.data(), sizeof(header));
@@ -256,9 +286,9 @@ class Reader : public Message {
     }
     data_.remove_prefix(sizeof(header));
     if (header_.identifier != Magic) {
-      SetError("unsupported message type.");
+      SetError("unsupported message type!");
     } else if (Size() != size - sizeof(header)) {
-      SetError("error message length.");
+      SetError("error message length!");
     }
   }
 
@@ -271,7 +301,6 @@ class Reader : public Message {
     }
     return *this;
   }
-
   template <typename T>
   Reader& ReadDynamicArray(T& obj) {
     size_t sz;
